@@ -2,12 +2,14 @@
 export interface ThemeComponent {
 	id: string;
 	name: string;
-	component: React.ComponentType<unknown>;
+	path: string;
 }
 
 export interface ThemeConfig {
 	name: string;
 	version: string;
+	description?: string;
 	components: Record<string, ThemeComponent>;
+	layouts?: Record<string, ThemeComponent>;
 	dependencies?: Record<string, string>;
 }

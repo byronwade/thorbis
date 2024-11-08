@@ -2,76 +2,127 @@
 import type { Theme, ThemeConfig } from "@/types";
 
 export class ThemeLoader {
-	async loadTheme(repository: string, branch = "main"): Promise<Theme> {
-		console.log("1. ThemeLoader.loadTheme called with:", { repository, branch });
+	private validateComponentPath(path: string | undefined): boolean {
+		if (!path) return false;
+
+		const validExtensions = [".tsx", ".jsx", ".js"];
+		const validPaths = ["components/", "layouts/"];
+
+		return validExtensions.some((ext) => path.endsWith(ext)) && validPaths.some((prefix) => path.startsWith(prefix));
+	}
+
+	private async transformComponent(content: string): Promise<string> {
+		// Remove any existing export statements
+		const cleanContent = content.replace(/export\s+default\s+/g, "return ");
+
+		// Wrap the component in a function to make it evaluatable
+		return `
+			function createComponent(props) {
+				${cleanContent}
+			}
+		`;
+	}
+
+	async loadComponent(repository: string, branch: string, path: string): Promise<string> {
+		if (!this.validateComponentPath(path)) {
+			throw new Error("Invalid component path");
+		}
 
 		const token = process.env.GITHUB_TOKEN;
 		if (!token) {
-			console.error("2. GITHUB_TOKEN not configured");
 			throw new Error("GITHUB_TOKEN is not configured");
 		}
 
-		// Test GitHub token
-		try {
-			const testResponse = await fetch("https://api.github.com/user", {
-				headers: {
-					Authorization: `Bearer ${token}`,
-					Accept: "application/vnd.github.v3+json",
-				},
-			});
-
-			if (!testResponse.ok) {
-				console.error("GitHub token validation failed:", await testResponse.text());
-				throw new Error("Invalid GitHub token");
-			}
-			console.log("GitHub token validated successfully");
-		} catch (error) {
-			console.error("GitHub token validation error:", error);
-			throw error;
+		const [owner, repo] = repository.split("/");
+		if (!owner || !repo) {
+			throw new Error("Invalid repository format");
 		}
+
+		const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+		console.log("Fetching component from:", url);
+
+		const response = await fetch(url, {
+			headers: {
+				Authorization: `Bearer ${token}`,
+				Accept: "application/vnd.github.v3.raw",
+			},
+			next: { revalidate: 3600 },
+		});
+
+		if (!response.ok) {
+			throw new Error(`Failed to load component: ${await response.text()}`);
+		}
+
+		const content = await response.text();
+		return this.transformComponent(content);
+	}
+
+	private async loadThemeConfig(owner: string, repo: string, branch: string): Promise<ThemeConfig> {
+		const token = process.env.GITHUB_TOKEN;
+		const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/theme.json`;
+
+		const response = await fetch(url, {
+			headers: {
+				Authorization: `Bearer ${token}`,
+				Accept: "application/vnd.github.v3.raw",
+			},
+			next: { revalidate: 3600 }, // Cache for 1 hour
+		});
+
+		if (!response.ok) {
+			throw new Error(`Failed to load theme config: ${await response.text()}`);
+		}
+
+		return response.json();
+	}
+
+	private async bundleComponents(components: Record<string, ThemeComponent>): Promise<Record<string, string>> {
+		const bundled: Record<string, string> = {};
+
+		for (const [key, component] of Object.entries(components)) {
+			try {
+				// Ensure component path is properly formatted
+				const componentPath = component.path.startsWith("/") ? component.path.slice(1) : component.path;
+
+				const code = await this.loadComponent(
+					component.repository || "", // Add fallback
+					component.branch || "main", // Add fallback
+					componentPath
+				);
+				bundled[key] = code;
+			} catch (error) {
+				console.error(`Failed to bundle component ${key}:`, error);
+				throw error;
+			}
+		}
+
+		return bundled;
+	}
+
+	async loadTheme(repository: string, branch = "main"): Promise<Theme> {
+		console.log("Loading theme:", { repository, branch });
 
 		const [owner, repo] = repository.split("/");
-		console.log("3. Parsed repository:", { owner, repo });
-
-		if (!owner || !repo) {
-			console.error("4. Invalid repository format");
-			throw new Error("Invalid repository format. Expected 'owner/repo'");
-		}
+		if (!owner || !repo) throw new Error("Invalid repository format");
 
 		try {
-			const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/theme.json`;
-			console.log("5. Fetching theme from:", url);
+			const themeConfig = await this.loadThemeConfig(owner, repo, branch);
+			console.log("Theme config loaded:", themeConfig);
 
-			const response = await fetch(url, {
-				headers: {
-					Authorization: `Bearer ${token}`,
-					Accept: "application/vnd.github.v3.raw",
-				},
-				next: { revalidate: 0 }, // Disable cache during debugging
-			});
-
-			console.log("6. Fetch response status:", response.status);
-
-			if (!response.ok) {
-				const error = await response.text();
-				console.error("7. GitHub API Error Response:", error);
-				throw new Error(`GitHub API error: ${error}`);
-			}
-
-			const config = await response.json();
-			console.log("8. Theme config loaded:", config);
+			const bundledComponents = await this.bundleComponents(themeConfig.components);
+			console.log("Components bundled successfully");
 
 			return {
 				id: `${repository}@${branch}`,
-				name: config.name,
+				name: themeConfig.name,
 				repository,
 				branch,
-				version: config.version,
-				components: config.components,
+				version: themeConfig.version,
+				components: bundledComponents,
 				active: false,
 			};
 		} catch (error) {
-			console.error("9. Theme loading error:", error);
+			console.error("Failed to load theme:", error);
 			throw error;
 		}
 	}
