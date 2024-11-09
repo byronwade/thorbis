@@ -1,12 +1,9 @@
 // src/app/admin/page.tsx
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { prisma } from "@/lib/db";
+import { themeQueries } from "@/lib/db/queries";
 
 export default async function AdminDashboard() {
-	const themeCount = await prisma.theme.count();
-	const activeTheme = await prisma.theme.findFirst({
-		where: { active: true },
-	});
+	const [themes, activeTheme] = await Promise.all([themeQueries.getAll(), themeQueries.getActive()]);
 
 	return (
 		<div className="space-y-6">
@@ -19,6 +16,7 @@ export default async function AdminDashboard() {
 					</CardHeader>
 					<CardContent>
 						<p className="text-2xl font-bold">{activeTheme?.name ?? "None"}</p>
+						{activeTheme && <p className="text-sm text-gray-500">Version: {activeTheme.version}</p>}
 					</CardContent>
 				</Card>
 
@@ -27,7 +25,7 @@ export default async function AdminDashboard() {
 						<CardTitle>Installed Themes</CardTitle>
 					</CardHeader>
 					<CardContent>
-						<p className="text-2xl font-bold">{themeCount}</p>
+						<p className="text-2xl font-bold">{themes.length}</p>
 					</CardContent>
 				</Card>
 			</div>

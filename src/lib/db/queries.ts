@@ -1,40 +1,60 @@
-import { prisma } from "../db";
+import { prisma } from "@/lib/db";
+import { ThemeMetadata, SiteConfig } from "@/types";
 
 // Theme queries
-export async function getThemes() {
-	return prisma.theme.findMany({
-		orderBy: { createdAt: "desc" },
-	});
-}
+export const themeQueries = {
+	getAll: async (): Promise<ThemeMetadata[]> => {
+		const themes = await prisma.theme.findMany({ orderBy: { createdAt: "desc" } });
+		return themes.map((theme) => ({
+			...theme,
+			remoteVersion: theme.remoteVersion ?? undefined,
+		}));
+	},
 
-export async function getActiveTheme() {
-	return prisma.theme.findFirst({
-		where: { active: true },
-	});
-}
+	getActive: async (): Promise<ThemeMetadata | null> => {
+		const theme = await prisma.theme.findFirst({ where: { active: true } });
+		if (!theme) return null;
+		return {
+			...theme,
+			remoteVersion: theme.remoteVersion ?? undefined,
+		};
+	},
 
-export async function activateTheme(id: string) {
-	await prisma.theme.updateMany({
-		where: { active: true },
-		data: { active: false },
-	});
+	activate: async (themeId: string): Promise<void> => {
+		await prisma.theme.updateMany({
+			where: { active: true },
+			data: { active: false },
+		});
+		await prisma.theme.update({
+			where: { id: themeId },
+			data: { active: true },
+		});
+	},
 
-	return prisma.theme.update({
-		where: { id },
-		data: { active: true },
-	});
-}
+	update: async (themeId: string, data: Partial<ThemeMetadata>): Promise<ThemeMetadata> => {
+		const updated = await prisma.theme.update({
+			where: { id: themeId },
+			data,
+		});
+		return {
+			...updated,
+			remoteVersion: updated.remoteVersion ?? undefined,
+		};
+	},
+};
 
 // Site config queries
-export async function getSiteConfig() {
-	return prisma.siteConfig.findFirst({
-		where: { id: "default" },
-	});
-}
+export const configQueries = {
+	get: async () =>
+		prisma.siteConfig.findFirst({
+			where: { id: "default" },
+			include: { theme: true },
+		}),
 
-export async function updateSiteConfig(data: { name?: string; description?: string }) {
-	return prisma.siteConfig.update({
-		where: { id: "default" },
-		data,
-	});
-}
+	update: async (data: Partial<SiteConfig>) =>
+		prisma.siteConfig.update({
+			where: { id: "default" },
+			data,
+			include: { theme: true },
+		}),
+};

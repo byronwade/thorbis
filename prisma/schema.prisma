@@ -1,6 +1,7 @@
 // prisma/schema.prisma
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["views"]
 }
 
 datasource db {
@@ -9,21 +10,24 @@ datasource db {
 }
 
 model Theme {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  repository  String
-  branch      String   @default("main")
-  version     String
-  active      Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  name            String
+  repository      String
+  branch          String   @default("main")
+  version         String
+  remoteVersion   String?  // Tracks latest available version
+  updateAvailable Boolean  @default(false)
+  active          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  siteConfig  SiteConfig[]
 }
 
 model SiteConfig {
   id          String   @id @default("default")
-  name        String
+  name        String   @default("My Site")
   description String?
-  createdAt   DateTime @default(now())
+  theme       Theme?   @relation(fields: [themeId], references: [id])
+  themeId     String?
   updatedAt   DateTime @updatedAt
 }
